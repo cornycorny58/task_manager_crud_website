@@ -1,24 +1,54 @@
-import pytest
-from Flask_app import app  
-from Flask_app.models import Task 
+import unittest
+from flask import Flask, url_for
+from flask_testing import TestCase
+from pymongo import MongoClient
+from classes import *
 
-@pytest.fixture
-def client():
-    app.config['TESTING'] = True
-    client = app.test_client()
+class IntegrationTest(TestCase):
 
-    # Set up a test database 
+    def create_app(self):
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.config['SECRET_KEY'] = 'mysecretkey'
+        app.config['MONGO_URI'] = 'mongodb://localhost:27017/TaskManagerTest'  # Use a separate test database
+        return app
 
-    yield client
+    def setUp(self):
+        self.client = self.app.test_client()
 
-    # Teardown the test database 
+    def tearDown(self):
+        mongo_client = MongoClient('localhost', 27017)
+        mongo_client.drop_database('TaskManagerTest')
 
-def test_create_task(client):
-    response = client.post('/create_task', data={'title': 'Test Task', 'priority': 1})
-    assert response.status_code == 302  # Expecting a redirect after form submission
+    def test_create_update_delete_task(self):
+        # Create a task
+        response = self.client.post('/create', data={
+            'title': 'Integration Test Task',
+            'priority': 1,
+            'shortdesc': 'Test Description'
+        })
+        self.assertRedirects(response, '/')
 
-    # Check if the task is correctly added to the test database
-    task = Task.query.filter_by(title='Test Task').first()
-    assert task is not None
-    assert task.priority == 1
+        # Update the task
+        response = self.client.post('/update', data={
+            'key': 1,
+            'shortdesc': 'Updated Test Description'
+        })
+        self.assertRedirects(response, '/')
 
+        # Verify that the task was updated
+        response = self.client.get('/')
+        self.assert200(response)
+        self.assertIn(b'Updated Test Description', response.data)
+
+        # Delete the task
+        response = self.client.post('/delete', data={'key': 1})
+        self.assertRedirects(response, '/')
+
+        # Verify that the task was deleted
+        response = self.client.get('/')
+        self.assert200(response)
+        self.assertNotIn(b'Updated Test Description', response.data)
+
+if __name__ == '__main__':
+    unittest.main()
